@@ -1,0 +1,43 @@
+# Large dataset files (too big for GitHub)
+RAIA_Project-main/emnist-letters-train.csv
+RAIA_Project-main/emnist-letters-test.csv
+
+# Trained models (can be regenerated)
+FASE1_SingleCharacterRecognition/models/*.pkl
+
+# Scripts folder (not part of the ML project)
+Scripts/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+venv/
+env/
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Output files
+FASE2_WordRecognition/output/
+FASE1_SingleCharacterRecognition/confusion_matrix.png
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
