@@ -156,7 +156,7 @@ def create_word_image_from_emnist(
         # Reshape to 28x28
         char_img = sample.reshape(28, 28).astype(np.uint8)
         
-        # Correct EMNIST orientation (rotate and flip)
+        # Apply EMNIST orientation corrections for proper segmentation
         char_img = np.rot90(char_img, k=3)
         char_img = np.fliplr(char_img)
         
@@ -165,14 +165,16 @@ def create_word_image_from_emnist(
     if len(char_images) == 0:
         return None
     
-    # Concatenate horizontally with white spacing (for better segmentation)
-    spacing = 5
-    white_space = np.ones((28, spacing), dtype=np.uint8) * 255
+    # Concatenate horizontally with BLACK spacing (EMNIST has white BG)
+    spacing = 2
+    black_space = np.zeros((28, spacing), dtype=np.uint8)  # BLACK not white!
     
     word_image = np.hstack([
-        np.hstack([img, white_space])
+        np.hstack([img, black_space])
         for img in char_images[:-1]
     ] + [char_images[-1]])
+    
+    # NO inversion! Keep EMNIST format: high values = text, low values = background
     
     # Save the created word image for debugging
     try:

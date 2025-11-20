@@ -18,8 +18,14 @@ BASE_DIR = Path(__file__).parent.parent
 FASE1_DIR = BASE_DIR.parent / "FASE1_SingleCharacterRecognition"
 
 # Phase 1 model paths (reusing trained character classifier)
-FASE1_MODEL_PATH = FASE1_DIR / "models" / "emnist_letter_classifier.pkl"
-FASE1_PREPROCESSOR_PATH = FASE1_DIR / "models" / "feature_scaler.pkl"
+# Use augmented model for better word recognition performance
+FASE1_MODEL_PATH = FASE1_DIR / "models" / "emnist_letter_classifier_augmented.pkl"
+FASE1_PREPROCESSOR_PATH = FASE1_DIR / "models" / "feature_scaler_augmented.pkl"
+
+# Fallback to original model if augmented not available
+if not FASE1_MODEL_PATH.exists():
+    FASE1_MODEL_PATH = FASE1_DIR / "models" / "emnist_letter_classifier.pkl"
+    FASE1_PREPROCESSOR_PATH = FASE1_DIR / "models" / "feature_scaler.pkl"
 
 # Output directories
 OUTPUT_DIR = BASE_DIR / "output"

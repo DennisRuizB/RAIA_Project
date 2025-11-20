@@ -120,9 +120,15 @@ class ModelTrainer(LoggerMixin):
             self.model.fit(X_train, y_train)
             self.logger.info("Model training completed successfully!")
             
-            # Training accuracy
-            train_score = self.model.score(X_train, y_train)
-            self.logger.info(f"Training Accuracy: {train_score:.4f} ({train_score*100:.2f}%)")
+            # Training accuracy (sampled for speed on large datasets)
+            sample_size = min(10000, len(X_train))
+            if sample_size < len(X_train):
+                indices = np.random.choice(len(X_train), sample_size, replace=False)
+                train_score = self.model.score(X_train[indices], y_train[indices])
+                self.logger.info(f"Training Accuracy (sample of {sample_size}): {train_score:.4f} ({train_score*100:.2f}%)")
+            else:
+                train_score = self.model.score(X_train, y_train)
+                self.logger.info(f"Training Accuracy: {train_score:.4f} ({train_score*100:.2f}%)")
             
             # Validation accuracy if provided
             if X_val is not None and y_val is not None:

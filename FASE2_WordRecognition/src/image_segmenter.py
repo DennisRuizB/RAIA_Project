@@ -14,8 +14,8 @@ from skimage.util import img_as_ubyte
 from skimage import filters
 from scipy import ndimage
 
-from src.config import SEGMENTATION_CONFIG, SEGMENTED_DIR
-from src.logger import LoggerMixin
+from config import SEGMENTATION_CONFIG, SEGMENTED_DIR
+from logger import LoggerMixin
 
 
 class ImageSegmenter(LoggerMixin):
@@ -92,53 +92,26 @@ class ImageSegmenter(LoggerMixin):
     
     def _preprocess_image(self, image: np.ndarray) -> np.ndarray:
         """
-        Preprocess image for segmentation.
+        Minimal preprocessing - just ensure grayscale.
         
-        Steps:
-        1. Convert to grayscale if needed
-        2. Binarize (Otsu's method)
-        3. Invert (ensure text is white on black)
-        4. Apply morphological operations
+        For EMNIST-concatenated images, we don't need heavy preprocessing.
+        Just ensure it's grayscale and return as-is.
         
         Args:
             image: Input image
         
         Returns:
-            Binary image (text=white, background=black)
+            Grayscale image in original format
         """
-        # Convert to grayscale
+        # Convert to grayscale if needed
         if image.ndim == 3:
+            from skimage.color import rgb2gray
             gray = rgb2gray(image)
+            gray = (gray * 255).astype(np.uint8)
         else:
-            gray = image.astype(np.float32) / 255.0 if image.max() > 1 else image
+            gray = image.astype(np.uint8)
         
-        # Binarize
-        method = self.config["binarization_method"]
-        
-        if method == "otsu":
-            threshold = filters.threshold_otsu(gray)
-            binary = gray < threshold  # Text is True (white)
-        elif method == "adaptive":
-            # Use simple mean for adaptive threshold
-            kernel_size = 15
-            local_mean = ndimage.uniform_filter(gray, size=kernel_size)
-            binary = gray < local_mean - 0.05
-        else:  # Fixed threshold
-            threshold = self.config["threshold_value"] / 255.0
-            binary = gray < threshold
-        
-        # Apply morphological operations if configured
-        if self.config["apply_morphology"]:
-            kernel_size = self.config["morph_kernel_size"]
-            kernel = np.ones(kernel_size, dtype=np.uint8)
-            
-            for operation in self.config["morph_operations"]:
-                if operation == "dilate":
-                    binary = ndimage.binary_dilation(binary, structure=kernel)
-                elif operation == "erode":
-                    binary = ndimage.binary_erosion(binary, structure=kernel)
-        
-        return binary.astype(np.uint8) * 255
+        return gray
     
     def _find_character_boundaries(
         self,
@@ -147,23 +120,23 @@ class ImageSegmenter(LoggerMixin):
         """
         Find character boundaries using vertical projection profile.
         
-        The projection profile counts white pixels in each column.
-        Character boundaries are detected where the profile drops below threshold.
+        For EMNIST format: high pixel values = ink/text
         
         Args:
-            binary_image: Binary image (255=text, 0=background)
+            binary_image: Grayscale image (high values = text)
         
         Returns:
             List of tuples (x_start, x_end) for each character
         """
-        # Calculate vertical projection (sum along height axis)
-        projection = np.sum(binary_image > 0, axis=0)
+        # Calculate vertical projection (sum of pixel intensities along height)
+        # High sums indicate columns with text
+        projection = np.sum(binary_image, axis=0).astype(float)
         
         # Normalize
         if projection.max() > 0:
             projection = projection / projection.max()
         
-        # Threshold to detect non-empty columns
+        # Threshold to detect text columns
         threshold = self.config["projection_threshold"]
         is_text = projection > threshold
         
@@ -226,14 +199,23 @@ class ImageSegmenter(LoggerMixin):
         # Extract character region
         char_image = binary_image[:, x_start:x_end]
         
-        # Crop vertically to remove excess whitespace
+        # Crop vertically to remove excess whitespace (more aggressive)
         row_projection = np.sum(char_image > 0, axis=1)
         nonzero_rows = np.where(row_projection > 0)[0]
         
         if len(nonzero_rows) > 0:
-            y_start = max(0, nonzero_rows[0] - padding)
-            y_end = min(char_image.shape[0], nonzero_rows[-1] + 1 + padding)
+            y_start = nonzero_rows[0]
+            y_end = nonzero_rows[-1] + 1
             char_image = char_image[y_start:y_end, :]
+        
+        # Also crop horizontally to tighten bounds
+        col_projection = np.sum(char_image > 0, axis=0)
+        nonzero_cols = np.where(col_projection > 0)[0]
+        
+        if len(nonzero_cols) > 0:
+            x_char_start = nonzero_cols[0]
+            x_char_end = nonzero_cols[-1] + 1
+            char_image = char_image[:, x_char_start:x_char_end]
         
         return char_image
     
@@ -258,18 +240,28 @@ class ImageSegmenter(LoggerMixin):
         
         h, w = char_image.shape
         
-        # Calculate scale to fit in 28x28 while preserving aspect ratio
-        scale = min(target_size / h, target_size / w)
+        # Calculate scale to fit in 28x28 with some margin (like EMNIST)
+        # Use 80% of available space to leave padding
+        max_size = int(target_size * 0.8)
+        scale = min(max_size / h, max_size / w)
         new_h = int(h * scale)
         new_w = int(w * scale)
         
-        # Resize using zoom (nearest neighbor for binary images)
-        if new_h > 0 and new_w > 0:
-            scaled = ndimage.zoom(
-                char_image,
-                (new_h / h, new_w / w),
-                order=1  # Bilinear interpolation
-            )
+        # Ensure minimum size
+        new_h = max(1, new_h)
+        new_w = max(1, new_w)
+        
+        # Resize using zoom (bilinear for smoother results)
+        if new_h > 0 and new_w > 0 and (new_h != h or new_w != w):
+            try:
+                scaled = ndimage.zoom(
+                    char_image,
+                    (new_h / h, new_w / w),
+                    order=1  # Bilinear interpolation
+                )
+            except Exception as e:
+                self.logger.warning(f"Zoom failed: {e}, using original")
+                scaled = char_image
         else:
             scaled = char_image
         
@@ -277,15 +269,16 @@ class ImageSegmenter(LoggerMixin):
         canvas = np.zeros((target_size, target_size), dtype=np.float32)
         
         # Calculate centering offsets
-        y_offset = (target_size - new_h) // 2
-        x_offset = (target_size - new_w) // 2
+        y_offset = (target_size - scaled.shape[0]) // 2
+        x_offset = (target_size - scaled.shape[1]) // 2
         
         # Place character in center
-        canvas[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = scaled
+        try:
+            canvas[y_offset:y_offset+scaled.shape[0], x_offset:x_offset+scaled.shape[1]] = scaled
+        except Exception as e:
+            self.logger.warning(f"Failed to place character: {e}")
         
-        # Invert to match EMNIST format (black text on white background)
-        canvas = 255 - canvas
-        
+        # Return as-is in EMNIST format (high values = ink)
         return canvas
     
     def _save_character(

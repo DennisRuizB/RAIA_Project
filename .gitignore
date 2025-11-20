@@ -1,9 +1,12 @@
 # Large dataset files (too big for GitHub)
 RAIA_Project-main/emnist-letters-train.csv
 RAIA_Project-main/emnist-letters-test.csv
+FASE3_PrintedTextRecognition/data/train.csv
+FASE3_PrintedTextRecognition/data/test.csv
 
 # Trained models (can be regenerated)
 FASE1_SingleCharacterRecognition/models/*.pkl
+FASE3_PrintedTextRecognition/models/*.pkl
 
 # Scripts folder (not part of the ML project)
 Scripts/
